@@ -18,8 +18,16 @@ class DeviceDriver:
         self.ser.reset_output_buffer()
 
     def close(self):
-        if self.ser:
+        if self.ser is None:
+            return
+
+        try:
             self.ser.close()
+        except (serial.SerialException, OSError) as error:
+            raise RuntimeError(
+                f"Error closing serial connection {self.port}: {error}"
+            ) from error
+        else:
             self.ser = None
 
     def send_command(self, command):
@@ -39,15 +47,17 @@ class DeviceDriver:
                 if remaining <= 0:
                     break
                 self.ser.timeout = remaining
-                line = self.ser.readline().decode("utf-8", errors="replace").strip()
-                if not line:
+                raw_line = self.ser.readline()
+
+                if raw_line == b"":
+                    # No bytes received: serial timeout
                     break
-                # Remove ANSI escape codes
+
+                line = raw_line.decode("utf-8", errors="replace").strip()
                 line = re.sub(r'\x1B\[[0-?]*[ -/]*[@-~]', '', line)
                 lines.append(line)
         finally:
             self.ser.timeout = old_timeout
-        print("Debug lines:", lines)
         return lines
 
     def wait_for(self, pattern, timeout):
@@ -61,15 +71,12 @@ class DeviceDriver:
 
     def reboot(self) -> bool:
         self.send_command("reboot")
-        print("Waiting for device to reboot...")
         return self.wait_for("Device ready.", 10)
 
     def register(self, login, password) -> bool:
         self.send_command(f"register {login} {password}")
-        print("Waiting for profile creation...")
         return self.wait_for("Profile Created", 5)
 
     def login(self, login, password) -> bool:
         self.send_command(f"login {login} {password}")
-        print("Waiting for login...")
         return self.wait_for("Session Started", 5)

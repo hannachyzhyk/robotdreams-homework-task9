@@ -6,10 +6,8 @@ from helpers.usbserialPortHelper import getUsbserialPort
 def device():
     device = DeviceDriver(port=getUsbserialPort())
     device.open()
-    print("Waiting for device to be ready...")
 
     yield device
-    print("Closing device connection...")
 
     device.close()
     
