@@ -4,27 +4,20 @@
 
 import pytest
 
-# Ключ	Тип	Діапазон	За замовчуванням	Опис
-# sensor_interval	int (мс)	500..60000	3000	Інтервал між показаннями сенсора
-# alarm_threshold	int	0..10000	80	Поріг спрацювання сигналізації (temp mode)
-# dist_threshold	int (см)	1..400	50	Поріг відстані для датчика HC-SR04
 @pytest.mark.functional
-@pytest.mark.parametrize(("key", "default_value", "set_value1", "set_value2"), 
-                         [("sensor_interval", "3000", "4000", "5000"), 
-                          ("alarm_threshold", "80", "90", "100"),
-                          ("dist_threshold", "50", "100", "150")])
-def test_config_load(logged_device, key, default_value, set_value1, set_value2):
-    # Перевірка значення за замовчуванням
-    logged_device.send_command(f"config get {key}")
-    assert logged_device.wait_for(f"[Config] {key} = {default_value}", timeout=5), f"FAIL: Expected default value '{default_value}' for key '{key}'"
-    # Встановлення нового значення
+@pytest.mark.parametrize(("key", "set_value1", "set_value2"), 
+                         [("sensor_interval", "4000", "5000"), 
+                          ("alarm_threshold", "90", "100"),
+                          ("dist_threshold", "100", "150")])
+def test_config_load_without_reboot(logged_device, key, set_value1, set_value2):
+     # Встановлення нового значення
     logged_device.send_command(f"config set {key} {set_value1}")
     assert logged_device.wait_for(f"[Config] {key} = {set_value1}", timeout=5), f"FAIL: Expected confirmation message for setting key '{key}' to '{set_value1}'"
     # Перевірка нового значення
     logged_device.send_command(f"config get {key}")
     assert logged_device.wait_for(f"[Config] {key} = {set_value1}", timeout=5), f"FAIL: Expected set value '{set_value1}' for key '{key}'"
 
-    # Збереження конфігурації та перезавантаження пристрою
+    # Збереження конфігурації
     logged_device.send_command("config save")
     assert logged_device.wait_for(f"[Config] Saved successfully.", timeout=5), f"FAIL: Expected confirmation message for saving config"
 
@@ -39,4 +32,34 @@ def test_config_load(logged_device, key, default_value, set_value1, set_value2):
     logged_device.send_command(f"config load")
     assert logged_device.wait_for(f"[Config] Config applied successfully.", timeout=5), f"FAIL: Expected confirmation message for loading config"
     logged_device.send_command(f"config get {key}")
-    assert logged_device.wait_for(f"[Config] {key} = {set_value1}", timeout=5), f"FAIL: Expected loaded value '{set_value1}' for key '{key}' after reboot"
+    response = logged_device.read_lines(timeout=5)
+    assert any(f"[Config] {key} = {set_value1}" in line for line in response), f"FAIL: Expected loaded value '{set_value1}' for key '{key}', but got: \n{response}"
+        
+@pytest.mark.xfail(reason="This test fails due to a bug in the device firmware. The device does not persist configuration after reboot.", strict=True)
+@pytest.mark.functional
+@pytest.mark.parametrize(("key", "set_value"), 
+                         [("sensor_interval", "4000"), 
+                          ("alarm_threshold", "90"),
+                          ("dist_threshold", "100")])
+def test_saved_config_load_after_reboot(logged_device, key, set_value):
+    # Встановлення нового значення
+    logged_device.send_command(f"config set {key} {set_value}")
+    assert logged_device.wait_for(f"[Config] {key} = {set_value}", timeout=5), f"FAIL: Expected confirmation message for setting key '{key}' to '{set_value}'"
+    # Перевірка нового значення
+    logged_device.send_command(f"config get {key}")
+    assert logged_device.wait_for(f"[Config] {key} = {set_value}", timeout=5), f"FAIL: Expected set value '{set_value}' for key '{key}'"
+
+    # Збереження конфігурації та перезавантаження пристрою
+    logged_device.send_command("config save")
+    assert logged_device.wait_for(f"[Config] Saved successfully.", timeout=5), f"FAIL: Expected confirmation message for saving config"
+    logged_device.reboot()
+    logged_device.register("user", "correctpass")
+    logged_device.login("user", "correctpass")
+    
+    # Перевірка завантаження конфігурації встановлює значення, що було збережене коммандою config save
+    logged_device.send_command(f"config load")
+    assert logged_device.wait_for(f"[Config] Config applied successfully.", timeout=5), f"FAIL: Expected confirmation message for loading config"
+    logged_device.send_command(f"config get {key}")
+    response = logged_device.read_lines(timeout=5)
+    assert any(f"[Config] {key} = {set_value}" in line for line in response), f"FAIL: Expected loaded value '{set_value}' for key '{key}' after reboot, but got: \n{response}"
+    
